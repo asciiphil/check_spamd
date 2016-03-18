@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+
+import optparse
+import subprocess
+import sys
+
+RC_OK   = 0
+RC_WARN = 1
+RC_CRIT = 2
+RC_UNKN = 3
+
+# This is the full list of return codes from spamc.  Many of them shouldn't
+# apply because we're using the '-K' option, but they're all listed just for
+# completeness.
+SPAMC_RCS = {
+    0: ('spamd OK', RC_OK),
+    64: ('command line usage error', RC_UNKN),
+    65: ('data format error', RC_UNKN),
+    66: ('cannot open input', RC_UNKN),
+    67: ('addressee unknown', RC_UNKN),
+    68: ('host name unknown', RC_UNKN),
+    69: ('service unavailable', RC_CRIT),
+    70: ('internal software error', RC_UNKN),
+    71: ('system error (e.g., can\'t fork)', RC_UNKN),
+    72: ('critical OS file missing', RC_UNKN),
+    73: ('can\'t create (user) output file', RC_UNKN),
+    74: ('input/output error', RC_UNKN),
+    75: ('temp failure; user is invited to retry', RC_WARN),
+    76: ('remote error in protocol', RC_WARN),
+    77: ('permission denied', RC_UNKN),
+    78: ('configuration error', RC_UNKN),
+    98: ('message was too big to process', RC_UNKN),
+}
+
+parser = optparse.OptionParser(usage="""
+  %prog [-H <hostname>] [-p <port>] [-S] [options]
+  %prog -U <socket> [options]""")
+parser.add_option('-H', '--host', default='localhost', help='The host on which spamd is running.')
+parser.add_option('-p', '--port', type='int', default=783, help='The TCP/IP port on which spamd is running.')
+parser.add_option('-S', '--ssl', action='store_true', help='Use SSH when connecting to spamd.')
+parser.add_option('-U', '--socket', help='The UNIX socket to use when connecting to spamd.')
+parser.add_option('--spamc', default='spamc', help='Path to the spamc program.')
+parser.add_option('-v', '--verbose', action='store_true')
+(options, args) = parser.parse_args()
+
+if len(args) > 0 :
+    parser.print_usage()
+    sys.exit(RC_UNKN)
+
+if options.socket is not None:
+    cmd = [options.spamc, '-K', '-U', options.socket]
+else:
+    cmd = [options.spamc, '-K', '-d', options.host, '-p', str(options.port)]
+    if options.ssl:
+        cmd.append('-S')
+
+if options.verbose:
+    print '#', ' '.join(cmd)
+
+process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+(stdout, stderr) = process.communicate()
+
+# Special-case the "OK" case to also print the output of spamc.
+if process.returncode == 0:
+    print stdout,
+    sys.exit(RC_OK)
+else:
+    (message, rc) = SPAMC_RCS[process.returncode]
+    print message
+    if stderr != '':
+        print stderr
+        sys.exit(RC_CRIT)
+    sys.exit(rc)
